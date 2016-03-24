@@ -27,6 +27,7 @@
 #include <errno.h>
 #include <sys/time.h>
 #include <sys/stat.h>
+#include <poll.h>
 #ifdef WIN32
 #include <winsock2.h>
 #include <windows.h>
@@ -291,11 +292,9 @@ int socket_connect(const char *addr, uint16_t port)
 
 int socket_check_fd(int fd, fd_mode fdm, unsigned int timeout)
 {
-	fd_set fds;
-	int sret;
+	struct pollfd fds[1];
+	int pret;
 	int eagain;
-	struct timeval to;
-	struct timeval *pto;
 
 	if (fd < 0) {
 		if (verbose >= 2)
@@ -303,36 +302,30 @@ int socket_check_fd(int fd, fd_mode fdm, unsigned int timeout)
 		return -1;
 	}
 
-	FD_ZERO(&fds);
-	FD_SET(fd, &fds);
+	fds[0].fd = fd;
 
-	if (timeout > 0) {
-		to.tv_sec = (time_t) (timeout / 1000);
-		to.tv_usec = (time_t) ((timeout - (to.tv_sec * 1000)) * 1000);
-		pto = &to;
-	} else {
-		pto = NULL;
-	}
-
-	sret = -1;
+	pret = -1;
 
 	do {
 		eagain = 0;
 		switch (fdm) {
 		case FDM_READ:
-			sret = select(fd + 1, &fds, NULL, NULL, pto);
+			fds[0].events = POLLIN;
+			pret = poll(fds, 1, timeout);
 			break;
 		case FDM_WRITE:
-			sret = select(fd + 1, NULL, &fds, NULL, pto);
+			fds[0].events = POLLOUT;
+			pret = poll(fds, 1, timeout);
 			break;
 		case FDM_EXCEPT:
-			sret = select(fd + 1, NULL, NULL, &fds, pto);
+			fds[0].events = 0;
+			pret = poll(fds, 1, timeout);
 			break;
 		default:
 			return -1;
 		}
 
-		if (sret < 0) {
+		if (pret < 0) {
 			switch (errno) {
 			case EINTR:
 				// interrupt signal in select
@@ -353,7 +346,7 @@ int socket_check_fd(int fd, fd_mode fdm, unsigned int timeout)
 		}
 	} while (eagain);
 
-	return sret;
+	return pret;
 }
 
 int socket_accept(int fd, uint16_t port)
